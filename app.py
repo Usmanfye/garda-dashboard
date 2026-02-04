@@ -27,11 +27,25 @@ conn = sqlite3.connect(DB_FILE)
 df = pd.read_sql("SELECT * FROM incidents", conn)
 conn.close()
 
-# Nettoyage
+# =========================
+# NETTOYAGE DES DONNÉES
+# =========================
 df.columns = df.columns.str.strip()
+
+# Date
 df["Date"] = pd.to_datetime(df["Date"], dayfirst=True, errors="coerce")
 df["Date"] = df["Date"].ffill()
 
+# Heure
+df["Heure"] = df["Heure"].astype(str).str.strip()
+
+# Date + Heure réelle
+df["DateHeure"] = pd.to_datetime(
+    df["Date"].dt.strftime("%Y-%m-%d") + " " + df["Heure"],
+    errors="coerce"
+)
+
+# Sécurité si Prix absent
 if "Prix" not in df.columns:
     df["Prix"] = 0
 
@@ -39,6 +53,7 @@ if "Prix" not in df.columns:
 # APP
 # =========================
 app = Dash(__name__)
+server = app.server
 auth = dash_auth.BasicAuth(app, VALID_USERS)
 app.title = "Dashboard Sécurité – CVA"
 
@@ -49,10 +64,56 @@ app.layout = html.Div(
     style={"padding": "20px", "fontFamily": "Arial"},
     children=[
 
-        html.H1("📊 Dashboard Sécurité – CVA",
-                style={"textAlign": "center", "color": "#0058a3"}),
+        # =========================
+        # HEADER : TITRE + LOGO
+        # =========================
+        html.Div(
+            style={
+                "display": "flex",
+                "alignItems": "center",
+                "justifyContent": "space-between",
+                "marginBottom": "10px"
+            },
+            children=[
+                html.H1(
+                    "📊 Infractions Entrée PRINCIPALE",
+                    style={"color": "#0058a3", "margin": 0}
+                ),
+                html.A(
+    href="https://www.ikea.com/ca/fr/",
+    target="_blank",  # ouvre dans un nouvel onglet
+    children=[
+        html.Img(
+            src="/assets/ikea_logo.png",
+            style={
+                "height": "60px",
+                "cursor": "pointer"
+            }
+        )
+    ]
+)
+            ]
+        ),
 
-        # Filtres
+        # =========================
+        # BANDEAU PÉRIODE
+        # =========================
+        html.Div(
+            "🗓️ Période analysée : Décembre 2025 – Février 2026",
+            style={
+                "textAlign": "center",
+                "backgroundColor": "#0058a3",
+                "color": "white",
+                "padding": "8px",
+                "borderRadius": "6px",
+                "fontWeight": "bold",
+                "marginBottom": "20px"
+            }
+        ),
+
+        # =========================
+        # FILTRES
+        # =========================
         html.Div(
             style={"display": "flex", "gap": "20px", "justifyContent": "center"},
             children=[
@@ -81,9 +142,16 @@ app.layout = html.Div(
 
         html.Br(),
 
+        # =========================
         # KPI
+        # =========================
         html.Div(
-            style={"display": "flex", "gap": "40px", "justifyContent": "center"},
+            style={
+                "display": "flex",
+                "gap": "40px",
+                "justifyContent": "center",
+                "fontWeight": "bold"
+            },
             children=[
                 html.Div(id="kpi-total"),
                 html.Div(id="kpi-vols"),
@@ -93,18 +161,13 @@ app.layout = html.Div(
 
         html.Br(),
 
-        # Graphiques
+        # =========================
+        # GRAPHIQUES
+        # =========================
         dcc.Graph(id="graph-prix"),
-        dcc.Graph(id="graph-evolution"),
         dcc.Graph(id="graph-pie"),
 
-        html.Br(),
-
-        # Export
-        html.Button("📤 Export Excel", id="btn-export-excel"),
-        dcc.Download(id="download-excel"),
-
-        html.H3("Détails des incidents"),
+        html.H3("📋 Détails des incidents"),
 
         dash_table.DataTable(
             id="tableau",
@@ -116,6 +179,7 @@ app.layout = html.Div(
     ]
 )
 
+
 # =========================
 # CALLBACK
 # =========================
@@ -124,7 +188,6 @@ app.layout = html.Div(
     Output("kpi-vols", "children"),
     Output("kpi-valeur", "children"),
     Output("graph-prix", "figure"),
-    Output("graph-evolution", "figure"),
     Output("graph-pie", "figure"),
     Output("tableau", "data"),
     Output("tableau", "columns"),
@@ -141,75 +204,78 @@ def update_dashboard(start_date, end_date, incidents):
     if incidents:
         dff = dff[dff["Type d’incident"].isin(incidents)]
 
+    # TRI TEMPOREL
+    dff = dff.sort_values("DateHeure").reset_index(drop=True)
+    dff["IndexIncident"] = dff.index + 1
+
     total = len(dff)
     vols = len(dff[dff["Type d’incident"] == "Vol confirmé"])
     valeur = dff["Prix"].sum()
 
-    # Message auto
+    # MESSAGE AUTO
     if vols == 0:
-        message = "✅ Aucun incident critique aujourd’hui"
+        message = "✅ Aucun incident critique"
         style = {"backgroundColor": "#e6f4ea", "padding": "10px"}
     else:
         message = f"⚠️ {vols} vol(s) confirmé(s)"
         style = {"backgroundColor": "#fdecea", "padding": "10px"}
 
-    # Histogramme prix
+    # =========================
+    # HISTOGRAMME PRIX MODERNE
+    # =========================
     fig_prix = px.histogram(
-        dff, x="Prix", nbins=20,
-        title="Distribution des prix",
+        dff,
+        x="Prix",
+        nbins=25,
+        color_discrete_sequence=["#0058a3"],
+        marginal="box",
+        title="Distribution des prix des incidents",
         template="plotly_white"
     )
 
-    # Évolution
-    evo = dff.groupby("Date").size().reset_index(name="Incidents")
-    fig_evolution = px.line(
-        evo, x="Date", y="Incidents",
-        markers=True,
-        title="Évolution des incidents",
-        template="plotly_white"
+    fig_prix.update_layout(
+        xaxis_title="Prix ($)",
+        yaxis_title="Nombre d'incidents",
+        bargap=0.1
     )
 
-    # Pie chart
+    # =========================
+    # ÉVOLUTION RÉELLE (NUAGE)
+    # =========================
+
+
+    
+
+
+    # =========================
+    # PIE CHART
+    # =========================
     counts = dff["Type d’incident"].value_counts()
+
     fig_pie = go.Figure(
         go.Pie(
             labels=counts.index,
             values=counts.values,
-            hole=0.4,
-            hovertemplate="<b>%{label}</b><br>%{value} incidents<br>%{percent}<extra></extra>"
+            hole=0.4
         )
     )
+
     fig_pie.update_layout(
         title="Répartition des incidents",
         template="plotly_white"
     )
-
-    data = dff.to_dict("records")
-    columns = [{"name": c, "id": c} for c in dff.columns]
 
     return (
         f"📌 Total incidents : {total}",
         f"🚨 Vols confirmés : {vols}",
         f"💰 Valeur totale : {valeur:,.2f} $",
         fig_prix,
-        fig_evolution,
         fig_pie,
-        data,
-        columns,
+        dff.to_dict("records"),
+        [{"name": c, "id": c} for c in dff.columns],
         message,
         style
     )
-
-# =========================
-# EXPORT
-# =========================
-@app.callback(
-    Output("download-excel", "data"),
-    Input("btn-export-excel", "n_clicks"),
-    prevent_initial_call=True
-)
-def export_excel(n):
-    return dcc.send_data_frame(df.to_excel, "export_dashboard.xlsx", sheet_name="Incidents")
 
 # =========================
 # RUN
